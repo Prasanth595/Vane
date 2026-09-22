@@ -39,6 +39,80 @@ const ThinkTagProcessor = ({
   );
 };
 
+/**
+ * HTML tags that the app intentionally injects into the answer text and
+ * renders through markdown-to-jsx overrides. Any other raw HTML coming from
+ * the model output must be shown as literal text so the browser does not
+ * interpret it (see #204).
+ *
+ * `a` is only allowed for the exact empty sentinel the app appends in
+ * `useChat.tsx` (`<a> </a>`); model-supplied anchors with attributes or
+ * children would render as real, clickable elements and must be escaped.
+ */
+const ALLOWED_HTML_TAGS = new Set(['think', 'citation']);
+
+const isAppSentinelAnchor = (node: any): boolean =>
+  node.tag === 'a' &&
+  !node.attrs &&
+  (!Array.isArray(node.children) || node.children.length === 0);
+
+/**
+ * Serialize a single AST child back to literal text. Handles text nodes,
+ * nested html nodes and markdown children (bold/italic/link) so escaping a
+ * raw HTML block never drops answer content.
+ */
+const htmlChildToLiteralString = (child: any): string => {
+  if (typeof child.text === 'string') {
+    return child.text;
+  }
+  if (typeof child.tag === 'string') {
+    return htmlNodeToLiteralString(child);
+  }
+  const inner = Array.isArray(child.children)
+    ? child.children.map(htmlChildToLiteralString).join('')
+    : '';
+  if (child.type === RuleType.link && typeof child.target === 'string') {
+    return `[${inner}](${child.target})`;
+  }
+  return inner;
+};
+
+/**
+ * Serialize a markdown-to-jsx html node back to its literal source form.
+ * Returning a string from renderRule lets React escape it as plain text.
+ */
+const htmlNodeToLiteralString = (node: any): string => {
+  if (node.type === RuleType.htmlComment) {
+    // markdown-to-jsx never populates `text` on comment nodes; drop them
+    // (matching the previous no-op behavior) instead of emitting `<!---->`.
+    return '';
+  }
+
+  const attrs = node.attrs
+    ? Object.entries(node.attrs)
+        .map(([key, value]) => {
+          if (value && typeof value === 'object') {
+            const style = Object.entries(value as Record<string, string>)
+              .map(([styleKey, styleValue]) => `${styleKey}: ${styleValue}`)
+              .join('; ');
+            return ` ${key}="${style}"`;
+          }
+          return ` ${key}="${value}"`;
+        })
+        .join('')
+    : '';
+
+  if (node.type === RuleType.htmlSelfClosing) {
+    return `<${node.tag}${attrs} />`;
+  }
+
+  const inner = Array.isArray(node.children)
+    ? node.children.map(htmlChildToLiteralString).join('')
+    : (node.text ?? '');
+
+  return `<${node.tag}${attrs}>${inner}</${node.tag}>`;
+};
+
 const MessageBox = ({
   section,
   sectionIndex,
@@ -86,6 +160,20 @@ const MessageBox = ({
             {node.text}
           </CodeBlock>
         );
+      }
+
+      if (
+        node.type === RuleType.htmlBlock ||
+        node.type === RuleType.htmlSelfClosing ||
+        node.type === RuleType.htmlComment
+      ) {
+        if (
+          node.type !== RuleType.htmlComment &&
+          (ALLOWED_HTML_TAGS.has(node.tag) || isAppSentinelAnchor(node))
+        ) {
+          return next();
+        }
+        return htmlNodeToLiteralString(node);
       }
 
       return next();
