@@ -39,6 +39,58 @@ const ThinkTagProcessor = ({
   );
 };
 
+/**
+ * HTML tags that the app intentionally injects into the answer text and
+ * renders through markdown-to-jsx overrides. Any other raw HTML coming from
+ * the model output must be shown as literal text so the browser does not
+ * interpret it (see #204).
+ */
+const ALLOWED_HTML_TAGS = new Set(['think', 'citation', 'a']);
+
+/**
+ * Serialize a markdown-to-jsx html node back to its literal source form.
+ * Returning a string from renderRule lets React escape it as plain text.
+ */
+const htmlNodeToLiteralString = (node: any): string => {
+  if (node.type === RuleType.htmlComment) {
+    return `<!--${node.text ?? ''}-->`;
+  }
+
+  const attrs = node.attrs
+    ? Object.entries(node.attrs)
+        .map(([key, value]) => {
+          if (value && typeof value === 'object') {
+            const style = Object.entries(value as Record<string, string>)
+              .map(([styleKey, styleValue]) => `${styleKey}: ${styleValue}`)
+              .join('; ');
+            return ` ${key}="${style}"`;
+          }
+          return ` ${key}="${value}"`;
+        })
+        .join('')
+    : '';
+
+  if (node.type === RuleType.htmlSelfClosing) {
+    return `<${node.tag}${attrs} />`;
+  }
+
+  const inner = Array.isArray(node.children)
+    ? node.children
+        .map((child: any) => {
+          if (typeof child.text === 'string') {
+            return child.text;
+          }
+          if (typeof child.tag === 'string') {
+            return htmlNodeToLiteralString(child);
+          }
+          return '';
+        })
+        .join('')
+    : (node.text ?? '');
+
+  return `<${node.tag}${attrs}>${inner}</${node.tag}>`;
+};
+
 const MessageBox = ({
   section,
   sectionIndex,
@@ -86,6 +138,20 @@ const MessageBox = ({
             {node.text}
           </CodeBlock>
         );
+      }
+
+      if (
+        node.type === RuleType.htmlBlock ||
+        node.type === RuleType.htmlSelfClosing ||
+        node.type === RuleType.htmlComment
+      ) {
+        if (
+          node.type !== RuleType.htmlComment &&
+          ALLOWED_HTML_TAGS.has(node.tag)
+        ) {
+          return next();
+        }
+        return htmlNodeToLiteralString(node);
       }
 
       return next();
