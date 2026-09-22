@@ -44,8 +44,38 @@ const ThinkTagProcessor = ({
  * renders through markdown-to-jsx overrides. Any other raw HTML coming from
  * the model output must be shown as literal text so the browser does not
  * interpret it (see #204).
+ *
+ * `a` is only allowed for the exact empty sentinel the app appends in
+ * `useChat.tsx` (`<a> </a>`); model-supplied anchors with attributes or
+ * children would render as real, clickable elements and must be escaped.
  */
-const ALLOWED_HTML_TAGS = new Set(['think', 'citation', 'a']);
+const ALLOWED_HTML_TAGS = new Set(['think', 'citation']);
+
+const isAppSentinelAnchor = (node: any): boolean =>
+  node.tag === 'a' &&
+  !node.attrs &&
+  (!Array.isArray(node.children) || node.children.length === 0);
+
+/**
+ * Serialize a single AST child back to literal text. Handles text nodes,
+ * nested html nodes and markdown children (bold/italic/link) so escaping a
+ * raw HTML block never drops answer content.
+ */
+const htmlChildToLiteralString = (child: any): string => {
+  if (typeof child.text === 'string') {
+    return child.text;
+  }
+  if (typeof child.tag === 'string') {
+    return htmlNodeToLiteralString(child);
+  }
+  const inner = Array.isArray(child.children)
+    ? child.children.map(htmlChildToLiteralString).join('')
+    : '';
+  if (child.type === RuleType.link && typeof child.target === 'string') {
+    return `[${inner}](${child.target})`;
+  }
+  return inner;
+};
 
 /**
  * Serialize a markdown-to-jsx html node back to its literal source form.
@@ -53,7 +83,9 @@ const ALLOWED_HTML_TAGS = new Set(['think', 'citation', 'a']);
  */
 const htmlNodeToLiteralString = (node: any): string => {
   if (node.type === RuleType.htmlComment) {
-    return `<!--${node.text ?? ''}-->`;
+    // markdown-to-jsx never populates `text` on comment nodes; drop them
+    // (matching the previous no-op behavior) instead of emitting `<!---->`.
+    return '';
   }
 
   const attrs = node.attrs
@@ -75,17 +107,7 @@ const htmlNodeToLiteralString = (node: any): string => {
   }
 
   const inner = Array.isArray(node.children)
-    ? node.children
-        .map((child: any) => {
-          if (typeof child.text === 'string') {
-            return child.text;
-          }
-          if (typeof child.tag === 'string') {
-            return htmlNodeToLiteralString(child);
-          }
-          return '';
-        })
-        .join('')
+    ? node.children.map(htmlChildToLiteralString).join('')
     : (node.text ?? '');
 
   return `<${node.tag}${attrs}>${inner}</${node.tag}>`;
@@ -147,7 +169,7 @@ const MessageBox = ({
       ) {
         if (
           node.type !== RuleType.htmlComment &&
-          ALLOWED_HTML_TAGS.has(node.tag)
+          (ALLOWED_HTML_TAGS.has(node.tag) || isAppSentinelAnchor(node))
         ) {
           return next();
         }
