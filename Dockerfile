@@ -17,6 +17,8 @@ RUN yarn build
 
 FROM node:24.5.0-slim
 
+ENV NODE_USE_ENV_PROXY=1
+
 RUN apt-get update && apt-get install -y \
     python3-dev python3-babel python3-venv python-is-python3 \
     uwsgi uwsgi-plugin-python3 \

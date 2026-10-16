@@ -148,6 +148,28 @@ If you prefer to build from source or need more control:
 
 See the [installation documentation](https://github.com/ItzCrazyKns/Vane/tree/master/docs/installation) for more information like updating, etc.
 
+### Outbound proxies
+
+The supplied images enable Node's environment proxy support for backend
+requests. Set `HTTP_PROXY` and `HTTPS_PROXY` to your proxy URLs, and use
+`NO_PROXY` for services that should be reached directly, such as
+`localhost,127.0.0.1,.svc,.cluster.local`. HTTP and HTTPS can use different
+proxies. Lowercase names (`http_proxy`, `https_proxy`, `no_proxy`) take
+precedence over their uppercase equivalents.
+
+For installation from source, use Node 24.5.0 or later and set
+`NODE_USE_ENV_PROXY=1` before starting Vane, alongside the proxy variables.
+Set `NODE_USE_ENV_PROXY=0` to disable this behavior in the supplied images.
+Without proxy variables, requests connect directly.
+
+`NO_PROXY` supports hostnames, domain suffixes, IP addresses, and optional
+ports. CIDR ranges such as `10.0.0.0/8` are not supported by this Node version;
+list the service hosts or addresses instead. `NODE_USE_ENV_PROXY` only
+configures Node; browser and SearxNG networking must be configured
+separately. A proxy using a private certificate authority also needs its CA
+configured, for example with `NODE_EXTRA_CA_CERTS`; do not disable TLS
+verification.
+
 ### Troubleshooting
 
 #### Local OpenAI-API-Compliant Servers

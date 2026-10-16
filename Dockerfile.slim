@@ -17,6 +17,8 @@ RUN yarn build
 
 FROM node:24.5.0-slim
 
+ENV NODE_USE_ENV_PROXY=1
+
 RUN apt-get update && apt-get install -y python3 python3-pip sqlite3 && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /home/vane
